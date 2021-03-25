@@ -1,0 +1,192 @@
+---
+title: "A grid-based approach to map animals social landscape"
+author: "Kevin Morelle^1,2^*, Second Author^3^"
+output:
+  word_document:
+    toc: no
+  bookdown::word_document2:
+    fig_caption: yes
+    fig_width: 7
+    fig_height: 7
+    df_print: kable
+    keep_md: yes
+    number_sections: no
+    toc: no
+    reference_docx: Word_template.docx
+bibliography:
+- Contact.bib
+- knitcitations.bib
+csl: ecology.csl
+---
+
+^1^ Max Planck Institute of Animal Behavior (MPIAB), Radolfzell, Germany
+
+^2^ University of Life Sciences (CULS), Prague, Czech Republic
+
+^3^ Blabla
+
+
+`*` Corresponding author: kmorelle@ab.mog.de
+
+
+# ABSTRACT
+
+Animal social behaviour is under focus since some decades. Integrating approach merging different field, like movement ecology, disease ecology and socio-biology are emerging over the last years. Yet, we feel there is still a gap in liking those approach within the landscape ecology field. Movement data are generally use for individuals or population level investigations, resource selection, habitat use, movement strategies. Yet these doesn't inform us about social whereabouts, e.g animals moving or spending time together. These area or patch or grid used by multiple animals simultaneously or with some short time lag are key for information and disease transfer in animal population.  Although, it is slowly changing, We believe tracking data are still underexplore under the social prism. We proposed here a simple grid-based tool enabling to convert animal tracking data into social landscape. This tool uses a set of metrics enabling to uncover the relative importance of landscape for direct and indirect social interactions. Specifically it enables to visualize social hubs where information or diseases can be transmitted within individuals. We apply this approach to a disease ecology case, the spread of African Swine Fever in wild boar populations _+cheetah data from IZW?_, and illustrate how the proposed approach can potentially fill a missing gap in the movement-social and landscape scientific bubble. 
+
+
+*Keywords*: Social hubs, interactions, aggregations, disease ecology, information, wild boar
+
+
+
+
+```{r setup, include=FALSE, cache=FALSE, message = FALSE}
+
+library("knitr")
+
+### Chunk options: see http://yihui.name/knitr/options/ ###
+## Text results
+opts_chunk$set(echo = FALSE, warning = TRUE, message = TRUE)
+
+## Code decoration
+opts_chunk$set(tidy = TRUE, comment = NA, highlight = TRUE)
+
+## Cache
+# opts_chunk$set(cache = 2, cache.path = "output/cache/")
+
+## Plots
+opts_chunk$set(fig.path = "output/figures/")
+
+```
+
+
+```{r knitcitations, cache = FALSE}
+library(knitcitations)
+cleanbib()   
+cite_options(citation_format = "pandoc")
+```
+
+
+
+
+# INTRODUCTION
+
+
+# OBJECTIVE - RESEARCH QUESTIONS
+
+
+# METHODS
+
+
+```{r tbl_metrics, echo=FALSE}
+Type <- c('indirect',
+          'indirect',
+          'indirect',
+          'direct',
+          'direct',
+          'direct')
+Metrics <- c('n_ind',
+             'revisit_interval',
+             'visit_frequency',
+             'n_ind_max',
+             'visit_duration',
+             'group_composition')
+Unit <- c('% of tracked individuals',
+          'every x hours',
+          'x by day/week/month',
+          '% of tracked individuals',
+          'hours',
+          'index 0-1, 1 = always same individuals/dyads/group, 0=always different')
+Description <- c('total number of distinct individuals having visited a grid over a particular time frame',
+                 'max number of individual simulatenously observed in a grid',
+                 '',
+                 '',
+                 '',
+                 '')
+
+tbl_metrics <- data.frame(Type, Metrics, Unit, Description)
+library(flextable)
+
+ft_metrics <- flextable(tbl_metrics)
+ft_metrics <- merge_v(ft_metrics, j = "Type")
+ft_metrics
+```
+
+
+
+
+## Steps 1
+
+Application of a grid over your tracking data. Definition of a resolution. The decision on the resolution relies upon your species specific system and at which scale your are interested toobserved interaction. Compromised between data resolution, species a priori knowledge of the social behaviour and scale of interest.
+_Sensitivity analysis on the impact of the resolution choice on the outcomes_
+
+## Steps 2: calculation of the metric at the grid level
+
+# APPLICATIONS
+
+
+
+```{r Table-Iris}
+kable(head(iris), caption = "A glimpse of the famous Iris dataset.")
+```
+
+
+```{r scatterplot, fig.cap="Just my first figure with a very fantastic caption."}
+x <- rnorm(100)
+y <- jitter(x, 1000)
+plot(x, y)
+```
+
+
+# DISCUSSION
+
+Discuss with other existing landscape-habitat available tools:
+
+- Habitat network [@Peng2020]
+- Grainscape toolbox
+- Movescape [@BastilleRousseau2020]
+
+
+
+# CONCLUSIONS
+
+Wrap up
+
+
+# ACKNOWLEDGEMENTS
+
+On the shoulders of giants.
+
+
+# REFERENCES
+
+```{r write_citations, cache=FALSE, include=FALSE}
+write.bibtex(file = "knitcitations.bib")
+```
+
+<div id ="refs"></div>
+
+
+
+###### Supplementary Table (on new page)
+
+```{r Table-mtcars}
+kable(mtcars[10:16, ], caption = "Now a subset of mtcars dataset.")
+```
+
+
+###### Supplementary Figure (on new page)
+
+```{r Fig-landscape, fig.cap="A boxplot."}
+a <- sort(rnorm(100))
+b <- c(rep("Group Small", 35), rep("Group Big", 65))
+boxplot(a ~ b)
+```
+
+
+
+
+```{r sessioninfo, eval = FALSE}
+# set eval = FALSE if you don't want this info (useful for reproducibility) to appear 
+sessionInfo()
+# sessioninfo::session_info()
+```

@@ -34,7 +34,8 @@ grid<-loop(gps_traj, 200)
 # grid2 <-interpolation(gps_traj, grid)
 # mean_weight<-mosaic_network(grid, index=2, sc=T, fun=mean) #Perform mean weight (not-interpolated)
 # plot(mean_weight)
-
+data(albatross)
+grid<-loop(albatross, 35000)
 
 table_grid<-table_cluster(gps_traj, grid)
 #Showing the first few rows of the table created.
@@ -77,6 +78,7 @@ table(values(pop_overl))
 plot(pop_overl)
 
 ## 2 Social grid ----
+### Steps 1: definition of a grid ----
 traj <- gps_traj
 res <- 200
 tt<-SpatialPoints(ld(traj)[,1:2])
@@ -95,12 +97,14 @@ gps_sf <- st_join(gps_sf, sf_data, join = st_intersects)
 
 gps_df <- as.data.frame(gps_sf) %>% mutate(yr_month=format(as.Date(acquisition_time), "%Y-%m"))
 
-# calculation of the grid-based parameters
+# Steps 2: metrics calculation ----
+# tot_ind in the specific study area
+tot_ind <- gps_df %>% distinct(animals_original_id) %>% nrow()
 # n_ind -----
 # = total number of distinct ind having visited a particular grid
 n_ind <- gps_df %>% dplyr::select(grid_id=layer,animals_original_id, acquisition_time, age=age_class_code_capture, sex) %>%
   group_by(grid_id) %>%
-  dplyr::summarise(n_ind=n_distinct(animals_original_id),.groups='keep') %>% arrange(grid_id)
+  dplyr::summarise(n_ind=(n_distinct(animals_original_id)/tot_ind)*100,.groups='keep') %>% arrange(grid_id)
 n_ind_empty <- data.frame(grid_id=getValues(ras), n_ind=0)
 n_ind_df <- left_join(n_ind_empty, n_ind, by="grid_id") %>% #str()
   mutate(n_ind=replace_na(n_ind.y,0))
@@ -128,7 +132,7 @@ n_ind_max <- DT2 %>% dplyr::select(grid_id=layer,animals_original_id, acquisitio
   group_by(grid_id, timegroup) %>%
   dplyr::summarise(time_max=mean(acquisition_time),
                    n_ind=n_distinct(animals_original_id),.groups='keep') %>%
-  group_by(grid_id) %>% dplyr::summarise(n_ind_max=max(n_ind))#%>% ggplot(.,aes(x=n_ind))  + geom_histogram()
+  group_by(grid_id) %>% dplyr::summarise(n_ind_max=(max(n_ind)/tot_ind)*100)#%>% ggplot(.,aes(x=n_ind))  + geom_histogram()
 
 n_ind_max_empty <- data.frame(grid_id=getValues(ras), n_ind_max=0)
 n_ind_max_df <- left_join(n_ind_max_empty, n_ind_max, by="grid_id") %>% #str()
@@ -236,6 +240,7 @@ count_n2 <- setValues(ras, as.numeric(freqdur_grp_df2$count))
 plot(count_n2, main="")
 
 rstack <-stack(r_n_ind,r_n_ind_max,duration_mean,duration_max,freq_day, sum_n2, count_n2)
+names(rstack) <- c("r_n_ind","r_n_ind_max","duration_mean","duration_max","freq_day", "sum_n2", "count_n2")
 plot(rstack, main=c("Total individuals having visited a grid cell",
                     "Maximum number of individuals observed simultaneously",
                     "Mean duration 2 or > individuals observed simultaneously (hours)",
@@ -243,6 +248,8 @@ plot(rstack, main=c("Total individuals having visited a grid cell",
                     "Frequency of visit by (any) 2 or > individuals (/day)",
                     "Average number of similar group member between consecutive visit",
                     "Total count of visit by group (i.e. 2 or > ind.)"))
+
+
 
 # frequency ----
 i <- 3355
@@ -384,3 +391,35 @@ DT5 %>% dplyr::summarise(sum_n2=sum(n2)/n(),
 
 left_join(n_ind, n_ind_max) %>% View()
 
+# Step 3: Clustering -----
+install.packages("mclust")
+library(mclust)
+data(diabetes)
+class <- diabetes$class
+table(class)
+## class
+## Chemical   Normal    Overt 
+##       36       76       33
+X <- diabetes[,-1]
+class(X)
+##   glucose insulin sspg
+## 1      80     356  124
+## 2      97     289  117
+## 3     105     319  143
+## 4      90     356  199
+## 5      90     323  240
+## 6      86     381  157
+clPairs(X, class)
+?clPairs
+library(tidyverse)
+stack_df <- as.data.frame(rstack) %>% filter_all(any_vars(. != 0))
+saveRDS(stack_df, file = "D:/PROJECTS/04_SocialScape/data/stack_df.rds")
+tt <- scale(table[table$ID == id[i], vars])
+try(ls[[i]] <- Mclust(tt, G = 2:max.n.clust, modelNames = modelname))
+BIC <- mclustBIC(stack_df)
+plot(BIC)
+mod1 <- Mclust(stack_df)
+summary(mod1, parameters = TRUE)
+library(moveNT)
+loop
+ind_clust
