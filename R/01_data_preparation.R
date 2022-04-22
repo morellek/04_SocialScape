@@ -110,23 +110,29 @@ saveRDS(gps1h,"data/gps1h.rds")
 # 3 Social cohesion ----
 # using WILDLIFE DI
 # Convert gps data into ltraj object (adehabitat)
+gps_utm <- readRDS("data/gps1h.rds") %>% st_as_sf(coords = c("x_", "y_"), crs = 32632, agr = "constant")
 library(adehabitatHR)
 library(wildlifeDI)
 library(adehabitatLT)
 library(rgeos)
+library(tidyverse)
+library(lubridate)
+
 social_index <- NULL
+con_sf_all <- NULL
+
 setdiff(unique(gps_utm$short_name2),unique(social_indexI$study_area))
-for (i in setdiff(unique(gps_utm$short_name2),unique(social_indexI$study_area))) { #c("Boxholm_49","Hertogenwald_11","Bialowieza_20")) { #
-  #i <- "HainichNP_15"
+for (i in unique(gps_utm$short_name2)) { #c("Boxholm_49","Hertogenwald_11","Bialowieza_20")) { #setdiff(unique(gps_utm$short_name2),unique(social_indexI$study_area))
+  #i <- "LageK_26.1"
   print(i)
   gps_i <-  gps_utm %>% filter(short_name2==i) %>% mutate(JDate=yday(acquisition_time)) %>%
-    dplyr::select(animals_id, gps_sensors_id,animals_original_id, acquisition_time,x, y, sex, age=age_class_code_capture, JDate) %>% 
+    dplyr::select(animals_id, gps_sensors_id,animals_original_id, acquisition_time,x, y, sex, age, JDate) %>% 
     distinct(animals_original_id,acquisition_time, .keep_all= TRUE)
-  coordinates(gps_i) <- ~x+y
-  raw_gps <- as.ltraj(coordinates(gps_i),
+  #coordinates(gps_i) <- ~x+y
+  raw_gps <- as.ltraj(st_coordinates(gps_i),
                       date=gps_i$acquisition_time,
-                      id=gps_i$animals_original_id, typeII=TRUE)
-  
+                      id=gps_i$animals_original_id, typeII=TRUE,
+                      proj4string=CRS(SRS_string = "EPSG:32632"))
   
   # regularization
   refda <- min(gps_i$acquisition_time)
@@ -134,6 +140,40 @@ for (i in setdiff(unique(gps_utm$short_name2),unique(social_indexI$study_area)))
   
   boar.traj <- sett0(gps_NA,refda,60,units="min")
   boar.traj <- na.omit(boar.traj)
+  ######## test ##############
+  # 
+  # 
+  # #boar2 <- boar.traj[burst(boar.traj) %in% c(pair$id1,pair$id2)]
+  # gps_pair <- gps_i %>% filter(animals_original_id %in% c("HAN_038_039","HAN_027_028"))
+  # pair_traj <- as.ltraj(st_coordinates(gps_pair),
+  #                        date=gps_pair$acquisition_time,
+  #                        id=gps_pair$animals_original_id, typeII=TRUE,
+  #                        proj4string=CRS(SRS_string = "EPSG:32632"))
+  # 
+  # plt <- dcPlot(pair_traj,tc=15*60,dmax=1000)
+  # doecons <- conProcess(pair_traj,dc=50,tc=10*60)
+  # doephas <- conPhase(doecons, pc=10*60)
+  # conSummary(doephas)
+  # doepair <- conPairs(doephas)
+  # doetemp <- conTemporal(doephas,units='mins')
+  # 
+  # doepair$hod <- as.POSIXlt(doepair$date)$hour + as.POSIXlt(doepair$date)$min / 60  #convert POSIX to hours
+  # doetemp$hod <- as.POSIXlt(doetemp$start_time)$hour + as.POSIXlt(doetemp$start_time)$min / 60  #convert POSIX to hours
+  # doepair$dom <- as.POSIXlt(doepair$date)$mday
+  # hist(doepair$dom,breaks=0:31)
+  # hist(doepair$hod,breaks=0:24) #Figure 2b
+  # hist(doetemp$hod,breaks=0:24) #Figure 2c
+  # hist(as.numeric(doetemp$duration), breaks = 10) #figure 2d
+  # 
+  # con_sf <- wildlifeDI::conSpatial(doephas,type='point')             # Get points of all contacts
+  # 
+  # sf_pt <- wildlifeDI::ltraj2sf(boar.traj.pair)  # Turn all fixes into sf points
+  # plot(st_geometry(sf_pt),col='grey',pch=20)
+  # plot(st_geometry(con_sf),col='black',pch=20,add=T)
+  
+  
+  
+  #######end test##############
   
   # Create fuzzy table to assess association value between all potential pairs of wild boar
   id1 <- unique(gps_i$animals_original_id)
@@ -146,12 +186,14 @@ for (i in setdiff(unique(gps_utm$short_name2),unique(social_indexI$study_area)))
     cross_df() -> data_df
   
   #Kenward's Coefficient of Sociality
-  to_fill <- data.frame(ind1=NA, ind2=NA,si=NA,prox=NA, cs=NA, ca=NA, hai=NA, cr=NA)
+  to_fill <- data.frame(ind1=NA, ind2=NA,si=NA,prox=NA, cs=NA, ca=NA, hai=NA, cr=NA,
+                        nContacts = NA, propContacts = NA, longPhase_hr = NA, meanPhase_hr = NA)
   df_all <- NULL
+  con_sf_i <- NULL
   dc <- 50
   tc <- 10*60
   for (j in 1:nrow(data_df) ) {
-    #j <- 8
+    #j <- 2
     print(j)
     pair <- data_df[j,]
     
@@ -179,6 +221,10 @@ for (i in setdiff(unique(gps_utm$short_name2),unique(social_indexI$study_area)))
     to_fill$cs <- NA
     to_fill$hai <- NA
     to_fill$cr <- NA
+    to_fill$nContacts <- NA
+    to_fill$propContacts <- NA
+    to_fill$longPhase_hr <- NA
+    to_fill$meanPhase_hr <- NA
     #to_fill$iab_attract <- NA
     #to_fill$iab_avoid <- NA
     to_fill$study_area <- i
@@ -189,59 +235,143 @@ for (i in setdiff(unique(gps_utm$short_name2),unique(social_indexI$study_area)))
     #if (class(SF)=="try-error") {SF <- NA}
     #SF_1 <- nrow(SF[[1]]) / nrow(pair1[[1]])
     #SF_2 <- nrow(SF[[2]]) / nrow(pair2[[1]])
+    to_fill$si <- SI
+    to_fill$ind1 <- pair$id1
+    to_fill$ind2 <- pair$id2
     # Dynamic Interaction
     #Proximity Analysis (PX)
+    
     PX <- try(Prox(pair1,pair2, tc=tc, dc=dc), silent = TRUE)
     if (class(PX)=="try-error") {PX <- NA}
+    to_fill$prox <- PX
     # Ca - Coefficient of association
     CA <- try(Ca(pair1,pair2, tc=tc, dc=dc), silent = TRUE)
     if (class(CA)=="try-error") {CA <- NA}
+    to_fill$ca <- CA
     # Cs - Coefficient of sociality
     CS <- try(Cs(pair1,  pair2, tc=tc), silent = TRUE)
     if (class(CS)=="try-error") {CS <- NA}
+    if (!is.na(CS)) {to_fill$cs <- CS$Cs} else {to_fill$cs <- NA}
     # HAI - Half-weight association index
     oz <- gIntersection(hr_1, hr_2)
     HAI <- try(HAI(pair1, pair2, oz, tc=tc, dc=dc), silent = TRUE)
     if (class(HAI)=="try-error") {HAI <- NA}
+    to_fill$hai <- HAI
     # IAB - Interaction Statistic
     #IAB <- try(IAB(pair1, pair2, tc=tc, dc=dc), silent = TRUE)
     #if (class(IAB)=="try-error") {IAB <- NA}
     # Cr - Correlation coefficient
     CR <- try(Cr(pair1, pair2, tc=tc), silent = TRUE)
     if (class(CR)=="try-error") {CR <- NA}
+    if (!is.na(CR)) {to_fill$cr <- CR} else {to_fill$cr <- NA}
     # DI - Dynamic interaction index
     #DI <- try(DI(pair1, pair2, tc=tc))
     #if (class(DI)=="try-error") {DI <- NA}
-    # fill in the table
-    to_fill$ind1 <- pair$id1
-    to_fill$ind2 <- pair$id2
-    to_fill$si <- SI
-    to_fill$prox <- PX
-    if (!is.na(CS)) {to_fill$cs <- CS$Cs} else {to_fill$cs <- NA}
-    to_fill$hai <- HAI
-    #if (!is.na(IAB)) {to_fill$iab_attract <- IAB$P.attract} else {to_fill$iab_attract <- NA}
-    #if (!is.na(IAB)) {to_fill$iab_avoid <- IAB$P.avoid} else {to_fill$iab_avoid <- NA}
-    if (!is.na(CR)) {to_fill$cr <- CR} else {to_fill$cr <- NA}
+    
+    # Contact data
+    # from https://cran.r-project.org/web/packages/wildlifeDI/vignettes/wildlifeDI-vignette-contact_analysis.html#processing-contacts
+    gps_pair <- gps_i %>% filter(animals_original_id %in% c(pair$id1,pair$id2))
+    pair_traj <- as.ltraj(st_coordinates(gps_pair),
+                          date=gps_pair$acquisition_time,
+                          id=gps_pair$animals_original_id, typeII=TRUE,
+                          proj4string=CRS(SRS_string = "EPSG:32632"))
+    doecons <- conProcess(pair_traj,dc=dc,tc=tc)
+    #if (class(CR)=="doecons") {CR <- NA}
+    doephas <- conPhase(doecons, pc=15*60)
+    con_df <- try(conSummary(doephas), silent = TRUE)
+    if (class(con_df )=="try-error") {to_fill$nContacts <- NA
+    to_fill$propContacts <- NA
+    to_fill$longPhase_hr <- NA
+    to_fill$meanPhase_hr <- NA} else {
+      con_sf <- wildlifeDI::conSpatial(doephas,type='point')      
+      con_sf$study <- i
+      # fill in the table
+      to_fill$nContacts <- con_df$result[2]
+      to_fill$propContacts <- con_df$result[2] / con_df$result[1]
+      to_fill$longPhase_hr <- con_df$result[4] / 3600
+      to_fill$meanPhase_hr <- con_df$result[5] / 3600
+    }
+    
     to_fill$study_area <- i
     df_all <- rbind(df_all, to_fill)
+    con_sf_i <- bind_rows(con_sf_i, con_sf)
   }
   social_index <- bind_rows(social_index, df_all)
+  con_sf_all <- bind_rows(con_sf_all, con_sf_i)
+}
+library(mapview)
+mapview(con_sf_i)
+View(df)
+social_df <- social_index %>% distinct(ca, cr, cs, hai, prox, si,nContacts, study_area, .keep_all = T)
+saveRDS(social_index, "tables/social_index_2022.rds" )
+st_write(con_sf_all, "data/derived_data/contacts_sf.csv", layer_options = "GEOMETRY=AS_XY")
+
+social_index %>% distinct(ca, cr, cs, hai, prox, si,nContacts, study_area, .keep_all = T) %>% group_by(study_area) %>% dplyr::summarise(maxSI = max(si,na.rm=T),
+                                              meanSI = mean(si,na.rm=T),
+                                                     minSI = min(si,na.rm=T))
+social %>% filter(study_area =="HainichNP_15")
+social_index %>% distinct(ca, cr, cs, hai, prox, si,nContacts, study_area, .keep_all = T) %>%
+  pivot_longer(cols = c(si,prox,cs,ca,hai,cr), names_to="metric") %>% 
+  #filter(value > 0) %>% 
+  ggplot(aes(x = value)) + geom_histogram(bins = 20) +
+  facet_wrap(~metric, scales = "free")
+View(social_index)
+# kmeans clustering ----
+# from https://uc-r.github.io/kmeans_clustering
+df <- USArrests
+df <- social_index %>% distinct(ca, cr, cs, hai, prox, si,nContacts, study_area, .keep_all = T) %>%
+  dplyr::select(ca, cr, cs, hai, prox, si) %>% na.omit() %>% scale()
+
+k2 <- kmeans(df, centers = 4, nstart = 25)
+str(k2)
+fviz_cluster(k2, data = df)
+# function to compute total within-cluster sum of square 
+wss <- function(k) {
+  kmeans(df, k, nstart = 10 )$tot.withinss
 }
 
-social_indexII <- social_index
-write.csv(social_index, "tables/social_indexII.csv" )
+# Compute and plot wss for k = 1 to k = 15
+k.values <- 1:15
 
-socialI <- read.csv("tables/social_index.csv")
-socialII <- read.csv("tables/social_indexII.csv")
+# extract wss for 2-15 clusters
+wss_values <- map_dbl(k.values, wss)
 
-social <- bind_rows(socialI, socialII)
-write.csv(social, "tables/social_all.csv" )
-social %>% group_by(study_area) %>% dplyr::summarise(maxSI <- max(si,na.rm=T),
-                                                     meanSI <- mean(si,na.rm=T),
-                                                     minSI <- min(si,na.rm=T))
-head(social)
+plot(k.values, wss_values,
+     type="b", pch = 19, frame = FALSE, 
+     xlab="Number of clusters K",
+     ylab="Total within-clusters sum of squares")
 
+fviz_nbclust(df, kmeans, method = "wss")
+fviz_nbclust(df, kmeans, method = "silhouette")
+library(cluster)
+gap_stat <- clusGap(df, FUN = kmeans, nstart = 25,
+                    K.max = 10, B = 50)
+fviz_gap_stat(gap_stat)
+final <- kmeans(df, 3, nstart = 25)
+fviz_cluster(final, data = df)
+social_df %>% dplyr::select(study_area, ind1, ind2, ca, cr, cs, hai, prox, si) %>% na.omit() %>% 
+  mutate(Cluster = final$cluster) %>%
+  group_by(Cluster) %>%
+  summarise_all("mean")
 
+cluster <- social_df %>% dplyr::select(study_area, ind1, ind2, ca, cr, cs, hai, prox, si) %>% na.omit() %>% 
+  mutate(Cluster = final$cluster,
+         cluster_class = case_when(Cluster == 1 ~ "between-group",
+                                   Cluster == 2 ~ "intermediate",
+                                   Cluster == 3 ~ "within-group")) %>% 
+  dplyr::select(ind1, ind2, cluster_class)
+
+social_final <- left_join(social_df, cluster, by= c("ind1", "ind2")) %>% 
+  filter(!is.na(cluster_class))
+View(social_final)
+nrow(social_final)
+social_final %>% 
+  pivot_longer(cols = c(si,prox,cs,ca,hai,cr), names_to="metric") %>% 
+  filter(value > 0) %>% 
+  ggplot(aes(x = value, fill = cluster_class)) + geom_density( alpha = .5) +
+  facet_wrap(~metric, scales = "free")
+
+# associate the cluster to the sf object
 
 
 # 4 Movescape ----

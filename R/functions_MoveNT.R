@@ -251,7 +251,7 @@ interpolation<-function(traj, ls, wei=mean, deg=mean, bet=max, spe=mean, dt=dot)
     steps<-SpatialLines(apply(data2, 1, function(r) {
       Lines(list(sp::Line(cbind(r[c(1,3)], r[c(2,4)]))), uuid::UUIDgenerate())
     }))
-    pts<-extract(ls[[i]], data2[,1:2])
+    pts<-raster::extract(ls[[i]], data2[,1:2])
     weight<-rasterize(steps, ls[[i]][[1]], field=pts[,2], fun=wei)
     degree<-rasterize(steps, ls[[i]][[1]], field=pts[,4], fun=deg)
     between<-rasterize(steps, ls[[i]][[1]], field=pts[,5], fun=bet)

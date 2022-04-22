@@ -3,31 +3,12 @@
 # and http://www.ecography.org/appendix/ecog-02881
 
 # https://davidrroberts.wordpress.com/2016/03/11/spatial-leave-one-out-sloo-cross-validation/
-dat
-lin.glm.form <- as.formula(direct~distance_forest+distance_edges+distance_urban)
-lin.mod <- glm(lin.glm.form, data=dat)
-summary(lin.mod)
-plot(predict(lin.mod),                                # Draw plot using Base R
-     dat$direct,
-     xlab = "Predicted Values",
-     ylab = "Observed Values")
-abline(a = 0,                                        # Add straight line
-       b = 1,
-       col = "red",
-       lwd = 2)
-data_mod <- data.frame(Predicted = predict(lin.mod),  # Create data for ggplot2
-                       Observed = dat$direct)
-ggplot(data_mod,                                     # Draw plot using ggplot2 package
-       aes(x = Predicted,
-           y = Observed)) +
-  geom_point() +
-  geom_abline(intercept = 0,
-              slope = 1,
-              color = "red",
-              size = 2)
+
+
+# functions -----
 
 # Spatially Buffered Leave-One-out Function
-sloo.fun.lm <- function(dat, x_coord, y_coord, resp, ss, rad, modform){
+sloo.fun.lm <- function(dat, x, y, resp, ss, rad, modform){
   # dat = complete data file
   # x_coord(y_coord) = names of x(y) coordinates in data
   # truth = true value of response
@@ -37,35 +18,55 @@ sloo.fun.lm <- function(dat, x_coord, y_coord, resp, ss, rad, modform){
   
   # Select the testing points
   test <- dat[sample(nrow(dat),ss),]
+  #rad <- 2000
+  #modform <- as.formula(direct ~ distance_forest + distance_edges +# the covariates
+  #                        distance_pasture + distance_river + human_print + enet_density +
+  #                        tcd + distance_roads + distance_paths + elevation + slope + hli + twi)
+  var_all <- NULL
   # Vector of predictions
   for(i in 1:nrow(test)){
     if(i==1){p <- c()}
     # Training data (test point & buffer removed)
-    train <- dat[sqrt((dat[,x_coord]-test[i,x_coord])^2 +(dat[,y_coord]-test[i,y_coord])^2)>rad,]
+    #train <- dat[sqrt((dat[,"x"]-test[i,"x"])^2 +(dat[,"y"]-test[i,"y"])^2)>rad,]
+    train <- dat[sqrt((dat[,x]-test[i,x])^2 +(dat[,y]-test[i,y])^2)>rad,]
     # Build the model
-    m <- glm(modform, data=train)
+    m <- lm(modform, data=train)
+    
     # Predict on test point
     p <- c(p, predict(m, test[i,], type="response"))
+    
+    var.coef <- data.frame(coef = summary(m)$coefficients[,4]) %>% rownames_to_column("variable") %>% 
+      mutate(study = study, rep = i,rsq = summary(m)$r.squared)
+    var_all <- rbind(var_all, var.coef)
+    
   }
+  
+
   # Residuals
   p.res <- test[,resp]-p
   # RMSE
   p.rmse <- sqrt(mean(p.res^2))
-  list(SampleRows=as.numeric(rownames(test)), Truth=test[,resp], Predictions=p, Residuals=p.res,RMSE=p.rmse)
-}
+  
+  list(SampleRows=as.numeric(rownames(test)), Truth=test[,resp], Predictions=p, Residuals=p.res,RMSE=p.rmse, rsq = r.sq,
+       res_df=var_all)
+  
+  }
 
-sloo.fun.rf <- function(dat, x, y, resp, ss, rad, modform){
+sloo.fun.rf <- function(dat, x, y, resp, ss, rad, modform, cov){
   # dat = complete data file
   # x_coord(y_coord) = names of x(y) coordinates in data
   # truth = true value of response
   # ss = sample size to process (number of LOO runs)
   # rad = radius for the spatial buffer around test point
   # modform = formula for the GLM
+  # cov = covariates rastr stack where to predict
   
   # Select the testing points
   #ss <- 10
   test <- dat[sample(nrow(dat),ss),]
   # Vector of predictions
+  prediction_all <- stack()
+  var_all <- NULL
   for(i in 1:nrow(test)){
     if(i==1){p <- c()}
     #i <- 2
@@ -73,33 +74,69 @@ sloo.fun.rf <- function(dat, x, y, resp, ss, rad, modform){
     train <- dat[sqrt((dat[,x]-test[i,x])^2 +(dat[,y]-test[i,y])^2)>rad,]
     # Build the model
     m <- randomForest(modform, data=train)
-    print(m)
+    #m <- randomForest(rf_form_direct, data=dat)
+    #print(m)
+    prediction <- predict(predictors_sp,m)
+    prediction_all <- stack(prediction_all, prediction)
+    
+    var_exp <- tail(m$rsq,1) * 100
+    var_all <- cbind(var_all,var_exp)
+    
+    #var_import <- data.frame(importance(m)) %>% rownames_to_column("variables")
+    #var_import$SampleRows <- i
+    
+    #print(var_import)
     # Predict on test point
     p <- c(p, predict(m, test[i,], type="response"))
+    
   }
+  
+  predict_mean <- calc(prediction_all, mean)
+  writeRaster(predict_mean, paste0("data/derived_data/predictions/predict_",study, ".grd"), overwrite = T)
+  #plot(predict_mean)
+  # variable importance
+  #var_import_df <- bind_rows(var_import_df, var_import)
   # Residuals
   p.res <- test[,resp]-p
   # RMSE
   p.rmse <- sqrt(mean(p.res^2))
-  list(SampleRows=as.numeric(rownames(test)), Truth=test[,resp], Predictions=p, Residuals=p.res,RMSE=p.rmse)
+  # variable importance
+  
+  list(SampleRows=as.numeric(rownames(test)), Truth=test[,resp], Predictions=p, Residuals=p.res,RMSE=p.rmse, var_exp = var_all)
+  #print(var_import_df)
 }
 
 # SLOO CV run with subset of the whole data
 # Sample Size = 10, Buffer Radius = 5
 # Linear GLM
-sloo.fun(dat, "x", "y", "direct", 100, 2500, lin.glm.form)
-# rmse across study areas -----
+
+
+# INFERENTIAL APPROACH -----
+lin_glm_between <- as.formula(used ~ distance_forest + distance_edges +# the covariates
+                               distance_pasture + distance_river + #human_print + enet_density +
+                               tcd + distance_roads + distance_paths + elevation + slope + hli + twi)
+
+# Test on 1 study
+lin.mod <- glm(lin_glm_between, data=dat, family = "binomial")
+
+
 all_sloo <- NULL
-for (i in unique(soc_df$study)) { 
+var_df <- NULL
+all_var <- NULL
+for (i in c("Famenne", "Bialowieza", "fanel","kaszo","FCNP_west",
+            "kostelec","Alb", "Wur","Grimsoe","HainichNP" )) {#unique(soc_df$study)) { 
   print(i)
-  #i <- "cab_24"
+  study <- i 
+  #i <- "HainichNP"
   dat <- soc_df %>% filter(study %in% i) %>%
-    dplyr::select(x, y, direct, indirect, withbetw, # the response
-                  distance_forest,distance_edges,distance_urban,# the covariates
+    dplyr::select(x, y, direct, indirect, #withbetw, # the response
+                  distance_forest,distance_edges,#distance_urban,# the covariates
+                  distance_pasture,#distance_crops, 
+                  distance_river, #human_print,enet_density,
                   tcd, distance_roads,distance_paths, elevation,
                   slope ,hli, twi)
-  dat <- dat[complete.cases(dat[, 6:15]),]
-  preProcValues <- preProcess(dat[,-c(1:2)], method = c("center", "scale")) # add "nzv", "YeoJohnson"
+  #dat <- dat[complete.cases(dat[, 5:17]),]
+  preProcValues <- preProcess(dat[,-c(1:4)], method = c("center", "scale")) # add "nzv", "YeoJohnson"
   dat <- predict(preProcValues, dat) 
   
   # create indices based on variogram model
@@ -108,10 +145,10 @@ for (i in unique(soc_df$study)) {
   # sloo
   max.size <- nrow(dat)
   buffer <- vario_fit$range[2]
-  if (buffer > 10000){buffer <- 10000} 
+  if (buffer > 10000){buffer <- 1000} 
   # Linear GLM
   ss.test.lin <- data.frame(N=1:max.size)
-  test.out.lin <- try(sloo.fun(dat, "x", "y", "direct", max.size, buffer, lin.glm.form))
+  test.out.lin <- try(sloo.fun.lm(dat, "x", "y", "indirect", max.size, buffer, lin_glm_direct))
   if(class(test.out.lin) == "try-error") {next}
   ss.test.lin[c("Truth","Pred","Res")] <- with(test.out.lin, cbind(Truth,Predictions,Residuals))
   
@@ -125,6 +162,7 @@ for (i in unique(soc_df$study)) {
   }
   ss.test.lin$study <- i
  all_sloo <- bind_rows(all_sloo, ss.test.lin)
+ all_var <- rbind(all_var, test.out.lin$res_df) 
 }
 # Note that both RMSEs start low/high and stabilise to the same value
 # The same happens to the quadratic model (not shown)
@@ -136,65 +174,145 @@ ggplot(all_sloo, aes(x = N, y = Ran_RMSE)) +
   facet_wrap(~study, scales = "free") + theme(legend.position = "none")
 ggsave("doc/figures/supp_rmse.png", , unit = "px",width = 3000, height = 2500)
 
+all_var %>% group_by(study, rep) %>% slice(1) %>% 
+  ungroup() %>% group_by(study) %>% 
+  dplyr::summarise(mean_rsq = mean(rsq))
 
-# randomForest across study areas -----
-mod_rf <- randomForest(y=dat$y[train], x=data.used[train,c(3,4,7,8,9,10,11)], ntree=250, nodesize=10)
-m <- randomForest(direct~.,data=dat[,c("direct","distance_forest","distance_edges")])
-m$mse
-m$rsq
-m$predicted
-varImpPlot(m)
+all_var %>% group_by(variable) %>% 
+  #dplyr::summarise(mean_coef = mean(coef)) %>% 
+  ggplot(aes(x = reorder(variable,coef), y = coef)) + geom_boxplot() +
+  ylim(c(0, 0.1)) + 
+  geom_hline(yintercept = 0.05, color = "red1") +
+  geom_hline(yintercept = 0.01, color = "red3") +
+  geom_hline(yintercept = 0.001, color = "red4") +
+  coord_flip() +
+  facet_wrap(~study) 
 
-iris.rf <- randomForest(Species ~ ., data=iris, importance=TRUE,
-                        proximity=TRUE)
-rf_form <- as.formula(direct~distance_forest+distance_edges+distance_urban)
-
+p <- ggplot() + geom_vline(xintercept = 5) + coord_flip()
+ggplotly(p)
+# PREDICTIVE -----
 # Test for a single study area
+library(doParallel)
 cl<-makeCluster(4)
 registerDoParallel(cl)
+library(randomForest)
 sloo.fun.rf(dat, "x", "y", "direct", 10, 2500, rf_form)
 model <- sloo.fun.rf(dat, "x", "y", "direct", max.size, buffer, rf_form)
 stopCluster(cl)
 predict <- raster::predict(cov, model)
 
-max.size <- 10
-rf_sloo <- NULL
+# formulas
+rf_form_direct <- as.formula(direct ~ distance_forest + distance_edges +# the covariates
+                        distance_pasture + distance_river + human_print + enet_density +
+                      tcd + distance_roads + distance_paths + elevation + slope + hli + twi)
+rf_form_indirect <- as.formula(indirect ~ distance_forest + distance_edges +# the covariates
+                               distance_pasture + distance_river + human_print + enet_density,
+                             tcd + distance_roads + distance_paths + elevation + slope + hli + twi)
+#rf_form_wb <- as.formula(withbetw ~ distance_forest + distance_edges +# the covariates
+#                               distance_pasture + distance_river + human_print + enet_density +
+#                             tcd + distance_roads + distance_paths + elevation + slope + hli + twi)
 
-for (i in unique(soc_df$study)) { 
-  print(i)
-  #i <- "cab_24"
-  dat <- soc_df %>% filter(study %in% i) %>%
-    dplyr::select(x, y, direct, indirect, withbetw, # the response
-                  distance_forest,distance_edges,distance_urban,# the covariates
-                  tcd, distance_roads,distance_paths, elevation,
-                  slope ,hli, twi)
-  dat <- dat[complete.cases(dat[, 6:15]),]
-  preProcValues <- preProcess(dat[,-c(1:2)], method = c("center", "scale")) # add "nzv", "YeoJohnson"
-  dat <- predict(preProcValues, dat) 
+max.size <- 10
+rf_direct <- NULL
+rf_indirect <- NULL
+rf_wb <- NULL
+test_direct_df <- NULL
+test_indirect_df <- NULL
+test_wb_df <- NULL
+
+for (i in unique(soc_df$study)) { #unique(soc_df$study)
+  study <- "HainichNP"
+  dat_i <- soc_df %>% filter(study == i)
+  if (nrow(dat_i) < 250) {next}
+  #i <- "HainichNP"
+  #for (j in c("warm", "cold")) {
+    #j <- "warm"
+    #dat_j <- dat_i %>% filter(season == j) 
+    #for (k in c("night", "day")){
+      dat <- dat_i %>% # filter(tod == k) %>% 
+        dplyr::select(x, y, direct, indirect, #withbetw, # the response
+                      distance_forest,distance_edges,#distance_urban,# the covariates
+                      distance_pasture,#distance_crops, 
+                      distance_river, human_print,
+                      enet_density,
+                      tcd, distance_roads,distance_paths, elevation,
+                      slope ,hli, twi) 
+      if (nrow(dat) > 500) {dat <- dat %>% sample_n(500)}
+      dat <- dat[complete.cases(dat[, 5:15]),]
+      preProcValues <- preProcess(dat[,-c(1:4)], method = c("center", "scale")) # add "nzv", "YeoJohnson"
+      dat <- predict(preProcValues, dat) 
+      dat_omit = na.omit(dat)
+      max.size <- nrow(dat)
+      # create indices based on variogram model
+      vario <- variogram(direct~1, data=dat, locations= ~x+y)
+      vario_fit <- fit.variogram(vario, vgm("Sph"))
+      # sloo
+      
+      buffer <- vario_fit$range[2]
+      if (buffer > 10000){buffer <- 1000} 
+      # randomForest
+      #
+      cl<-makeCluster(4)
+      registerDoParallel(cl)
+      test_direct_rf <- data.frame(N=1:max.size)
+      test_indirect_rf <- data.frame(N=1:max.size)
+      #test_wb_rf <- data.frame(N=1:max.size)
+      
+      max.size = 10
+      cov <- stack(paste0("D:/PROJECTS/xx_GIS/data/derived_data/stacks_2022/", i,".grd"))
+      test_out_direct <- try(sloo.fun.rf(dat, "x", "y", "direct", max.size, buffer, rf_form_direct, cov))
+      test_out_indirect <- try(sloo.fun.rf(dat, "x", "y", "indirect", max.size, buffer, rf_form_indirect))
+      #test_out_wb <- try(sloo.fun.rf(dat_omit, "x", "y", "withbetw", max.size, buffer, rf_form_wb))
+      #+if(class(test_out_wb) == "try-error") {next}
+      test_direct_rf[c("Truth","Pred","Res")] <- with(test_out_direct, cbind(Truth,Predictions,Residuals))
+      test_indirect_rf[c("Truth","Pred","Res")] <- with(test_out_indirect, cbind(Truth,Predictions,Residuals))
+      #test_wb_rf[c("Truth","Pred","Res")] <- with(test_out_wb, cbind(Truth,Predictions,Residuals))
+      
+      # Add the cumulative RMSE by simply calculating RMSE in sequence
+      # Add the random RMSE values by iteratively sampling from the data
+      for(l in 1:max.size){
+        # Random RMSE
+        test_direct_rf[l,"Ran_RMSE"] <- with(test_direct_rf[sample(1:max.size,l),], sqrt(mean((Truth-Pred)^2)))
+        test_indirect_rf[l,"Ran_RMSE"] <- with(test_indirect_rf[sample(1:max.size,l),], sqrt(mean((Truth-Pred)^2)))
+        #test_wb_rf[l,"Ran_RMSE"] <- with(test_wb_rf[sample(1:max.size,l),], sqrt(mean((Truth-Pred)^2)))
+        # Cumulative RMSE
+        test_direct_rf[l,"Cum_RMSE"] <- sqrt(mean((test_direct_rf$Res[1:l])^2))
+        test_indirect_rf[l,"Cum_RMSE"] <- sqrt(mean((test_indirect_rf$Res[1:l])^2))
+        #test_wb_rf[l,"Cum_RMSE"] <- sqrt(mean((test_wb_rf$Res[1:l])^2))
+        
+        test_direct_rf$study <- i
+        #test_direct_rf$tod <- k
+        #test_direct_rf$season <- j
+        
+        test_indirect_rf$study <- i
+        #test_indirect_rf$tod <- k
+        #test_indirect_rf$season <- j
+        
+        #test_wb_rf$study <- i
+        #test_wb_rf$tod <- k
+        #test_wb_rf$season <- j
+        
+      }
+      test_direct_df <- bind_rows(test_direct_df, test_direct_rf)
+      test_indirect_df <- bind_rows(test_indirect_df, test_indirect_rf)
+      #test_wb_df <- bind_rows(test_wb_df, test_wb_rf)
+      rf_direct <- bind_rows(rf_direct, test_direct_df)
+      rf_indirect <- bind_rows(rf_indirect, test_indirect_df)
+      
+      stopCluster(cl)
+      #rf_wb <- bind_rows(rf_wb, test_wb_df)
+    }
+    
+    
+  #}
   
-  # create indices based on variogram model
-  vario <- variogram(direct~1, data=dat, locations= ~x+y)
-  vario_fit <- fit.variogram(vario, vgm("Sph"))
-  # sloo
-  
-  buffer <- vario_fit$range[2]
-  if (buffer > 10000){buffer <- 10000} 
-  # randomForest
-  ss.test.lin <- data.frame(N=1:max.size)
-  cl<-makeCluster(4)
-  registerDoParallel(cl)
-  test_out_rf <- try(sloo.fun.rf(dat, "x", "y", "direct", max.size, buffer, rf_form))
-  if(class(test.out.lin) == "try-error") {next}
-  ss.test.lin[c("Truth","Pred","Res")] <- with(test.out.lin, cbind(Truth,Predictions,Residuals))
-  
-  # Add the cumulative RMSE by simply calculating RMSE in sequence
-  # Add the random RMSE values by iteratively sampling from the data
-  for(j in 1:max.size){
-    # Random RMSE
-    ss.test.lin[j,"Ran_RMSE"] <- with(ss.test.lin[sample(1:max.size,j),], sqrt(mean((Truth-Pred)^2)))
-    # Cumulative RMSE
-    ss.test.lin[j,"Cum_RMSE"] <- sqrt(mean((ss.test.lin$Res[1:j])^2))
-  }
-  ss.test.lin$study <- i
-  rf_sloo <- bind_rows(rf_sloo, ss.test.lin)
-}
+ 
+#}
+
+rf_direct %>% group_by(study) %>% tally() 
+rf_wb %>% filter(study=="HainichNP" & season == "cold")
+
+ggplot(rf_direct, aes(x = N, y = Ran_RMSE)) + 
+  geom_point(alpha=0.1) +
+  geom_line(aes(x = N, y = Cum_RMSE, colour = "red")) +
+  facet_wrap(~study, scales = "free") + theme(legend.position = "none")

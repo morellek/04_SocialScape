@@ -1,4 +1,5 @@
 library(moveNT)
+source('D:/PROJECTS/04_SocialScape/R/functions_MoveNT.R')
 library(adehabitatLT)
 library(raster)
 library(sp)
@@ -26,58 +27,90 @@ gps_utm <- mk_track(gps, .x = longitude, .y = latitude, .t =acquisition_time,id=
 # saveRDS(gps_traj, file = "D:/PROJECTS/02_Contacts/materials/Bastille_Rousseau/gps_ltraj.rds")
 # 1 Movescape ----
 gps_traj <- readRDS(file = "D:/PROJECTS/02_Contacts/materials/Bastille_Rousseau/gps_ltraj.rds")
+gps_traj <- gps_traj[id=c("alb_7091","alb_7092","alb_7095") ]
 grid<-loop(gps_traj, 200)
-#plot(grid[[1]])
+plot(grid[[1]])
 #plot(gps_traj[],add=T)
 
 # interpolation
-# grid2 <-interpolation(gps_traj, grid)
-# mean_weight<-mosaic_network(grid, index=2, sc=T, fun=mean) #Perform mean weight (not-interpolated)
-# plot(mean_weight)
-data(albatross)
-grid<-loop(albatross, 35000)
+grid2 <-interpolation(gps_traj, grid)
+plot(grid2[[2]])
+mean_weight<-mosaic_network(grid, index=2, sc=T, fun=mean) #Perform mean weight (not-interpolated)
+plot(mean_weight)
+#data(albatross)
+#grid<-loop(albatross, 35000)
 
 table_grid<-table_cluster(gps_traj, grid)
 #Showing the first few rows of the table created.
 head(table_grid)
 #B- Individual-level clustering
 #The first step of the analysis is to apply the clustering to each individual. *ind_clust* apply a mixture model to each individual. It is possible to specify the maximum number of clusters (here 8) and also the covariates to use for the clustering, but the function automatically selects the optimal number of clusters (based on BIC). In our case, 2 individuals had 6 clusters, 2 had seven, and 2 had eight clusters. *ls_ind* simply return a list object with each element representing a single individual.
-ls_ind<-ind_clust(table_grid, max.n.clust=8)
+ls_ind<-ind_clust(table_grid, max.n.clust=4)
 #Showing the number of individuals with 6, 7, and 8 clusters
 #   (i.e. no individual had less than 6 clusters)
 table(unlist(lapply(ls_ind, function(x) x$G)))
 
 #C- Population-level clustering
-#After performing the individual clustering, a second clustering is applied via *pop_clust*. This second clustering takes the ouptut of *ind_clust* and will identify which individual clusters could be considered as one population-level clusters. The function automatically selects the optimal number of clusters (based on BIC). It is possible for two clusters from the same individual to be in the same population-level cluster. Likewise, it is possible that a population level cluster does not have all individuals. Here, 3 different population clusters were calculated. The second line extract the center (mean) of each cluster which is helpful in interpreting their meaning. The first cluster was heavily used (weight), well connected (degree), and important for connectivity (betweenness), but albatross were moving slowly and not linearly in them. The second cluster was a cluster with intermediate use, not important for connectivity and still with meandering movement. The third cluster was important for connectivty and albatross were  moving fast and linearly in it. We also extract the proportion of each cluster.
+#After performing the individual clustering, a second clustering is applied via *pop_clust*. 
+# This second clustering takes the ouptut of *ind_clust* and will identify which individual clusters could be considered as one population-level clusters. 
+# The function automatically selects the optimal number of clusters (based on BIC). It is possible for two clusters from the same individual to be in the same population-level cluster. 
+# Likewise, it is possible that a population level cluster does not have all individuals. Here, 3 different population clusters were calculated. 
+# The second line extract the center (mean) of each cluster which is helpful in interpreting their meaning. 
+# The first cluster was heavily used (weight), well connected (degree), and important for connectivity (betweenness), but albatross were moving slowly and not linearly in them. The second cluster was a cluster with intermediate use, not important for connectivity and still with meandering movement. The third cluster was important for connectivty and albatross were  moving fast and linearly in it. We also extract the proportion of each cluster.
 pop<-pop_clust(gps_traj, ls_ind)
-pop_clust
+pop
 #Paremeters associated to each cluster (i.e. center)
 pop[[1]]$parameters$mean
 #Proportion of each cluster (how frequent it is spatially)
 pop[[1]]$parameters$pro
-
+pop[[1]]$classification
+pop[[1]]$uncertainty
+pop[[2]]
 #D- Mapping and results export
-#After performing the population level cluster, the function  *clust_stack* recombines the individual and population level clustering and produce a *stack* object for each individual albatross showing the most likely cluster, and also the probability of observing each cluster (uncertainty) in any given pixel. This individual level data (but which contains the population level clustering) can be used in a regression based analysis as presented in the manuscript or simply mapped. We developed two functions to produce these maps. *pop_stack* generate for each population cluster, rasters showing if at least one individual is using this pixel for this specific cluster. *pop_overl* display for each pixel all potential use observed, for example a pixel having the value *123* will have at least one individual using this pixel as cluster 1, another individual using it as 2, and another individual as 3. We show how frequent each combination are using the *table* function. These object can be exported to be used in other software using the *writeRaster* function.
+#After performing the population level cluster, the function  
+# *clust_stack* recombines the individual and population level clustering and 
+# produce a *stack* object for each individual albatross showing the most likely cluster, 
+#and also the probability of observing each cluster (uncertainty) in any given pixel. 
+#This individual level data (but which contains the population level clustering) 
+# can be used in a regression based analysis as presented in the manuscript or simply mapped. 
+
+# We developed two functions to produce these maps. 
+# *pop_stack* generate for each population cluster, rasters showing if at least one individual is using this pixel for this specific cluster. 
+# *pop_overl* display for each pixel all potential use observed, 
+# for example a pixel having the value *123* will have at least 
+# one individual using this pixel as cluster 1,
+# another individual using it as 2, 
+# and another individual as 3. 
+# We show how frequent each combination are using the *table* function. These object can be exported to be used in other software using the *writeRaster* function.
 
 clust_stack<-clust_stack(grid, pop, ls_ind, table_grid)
 #Plotting the stack for the first individual
-plot(clust_stack[[1]])
+plot(clust_stack[[6]][["Clust"]])
 pop_stack<-pop_stack(clust_stack)
 #Plotting the stack object. Each raster shows if at least one
 # individual is using the pixel as a specific cluster.
 plot(pop_stack)
 #writeRaster(pop_stack, "Network.tif", format="GTiff",  bylayer=T, suffix="names", overwrite=T)
 pop_overl<-pop_overl(clust_stack)
+plot(pop_overl)
 #Table showing how frequent each pixels is. A value of 123 indicates
 # that at least one individual is using the pixel as 1, one individual
 # is using it as 2, and one as 3
-table(values(pop_overl))
+data.frame(table(values(pop_overl)))
 #Plotting of the overlap raster. The legend makes it hard to see,
 # but values range from 0 (no animal present) to 123
 # (each type of used is observed in the pixel).
 plot(pop_overl)
-
+pop_categ <- pop_overl
+pop_categ[pop_categ == 3 | pop_categ == 13 | pop_categ == 23 | pop_categ == 34 |
+            pop_categ == 123 | pop_categ == 134| pop_categ == 234| pop_categ == 1234] <- 3
+pop_categ[pop_categ == 4 | pop_categ == 14 | pop_categ == 24 | pop_categ == 124] <- 2
+pop_categ[pop_categ == 1 | pop_categ == 2 | pop_categ == 12] <- 1
+plot(pop_categ)
+library(usdm)
+vif(stack(pop_categ, mean_weight))
 ## 2 Social grid ----
+gps_traj <- readRDS(file = "D:/PROJECTS/02_Contacts/materials/Bastille_Rousseau/gps_ltraj.rds")
 ### Steps 1: definition of a grid ----
 traj <- gps_traj
 res <- 200
@@ -87,20 +120,31 @@ tt2<-apply(coordinates(tt), 2, max)
 ras<-raster(xmn=floor(tt1[1]), ymn=floor(tt1[2]),xmx=ceiling(tt2[1]), ymx=ceiling(tt2[2]), res=res)
 ras[] <- 1:ncell(ras)
 plot(ras)
-text(ras, halo=TRUE, hc='white', size=0.2)
+#text(ras, halo=TRUE, hc='white', size=0.2)
 spdf_2 <- as(ras,'SpatialPolygonsDataFrame')
 sf_data <- st_as_sf(spdf_2)
 st_crs(sf_data) = 32632
 # convert gps data to sf object
 gps_sf <- st_as_sf(gps_utm, coords = c("x", "y"), crs = 32632, agr = "constant")
 gps_sf <- st_join(gps_sf, sf_data, join = st_intersects)
+library(lubridate)
+gps_df <- as.data.frame(gps_sf) %>% mutate(yr_month=format(as.Date(acquisition_time), "%Y-%m"),
+                                           day=yday(acquisition_time))
 
-gps_df <- as.data.frame(gps_sf) %>% mutate(yr_month=format(as.Date(acquisition_time), "%Y-%m"))
-
+# Vizualization
+gps_sub <- gps_df %>% filter(day==18 )
+gps_sub %>% group_by(layer) %>% dplyr::summarise(nind=n_distinct(animals_original_id)) %>% View()
+ggplot() +
+  geom_point(data = subset(gps_df, day %in% c( 10:20) & layer %in% c(1862)), aes(x = x_, y = y_, color=animals_original_id), size = 5,shape = 20)  + # guides(color=FALSE) + theme_void()
+  geom_sf(data = subset(sf_data, layer %in% c(1862)), fill = NA, size=.1) +
+  guides(color=FALSE, size=FALSE) + 
+  ggtitle("Grid 1862 - day 10 : 20") +
+  theme_void()
+ggsave("D:/PROJECTS/04_SocialScape/figures/pres_day10_20.png", width = 20, height = 12, units = "cm")
 # Steps 2: metrics calculation ----
 # tot_ind in the specific study area
 tot_ind <- gps_df %>% distinct(animals_original_id) %>% nrow()
-# n_ind -----
+# n_ind_ -----
 # = total number of distinct ind having visited a particular grid
 n_ind <- gps_df %>% dplyr::select(grid_id=layer,animals_original_id, acquisition_time, age=age_class_code_capture, sex) %>%
   group_by(grid_id) %>%
@@ -117,12 +161,12 @@ plot(r_n_ind, main="Total individuals having visited a grid cell")
 # time_max = time at which it took place
 # add timegroup variable by grid
 DT <- data.table(gps_df)
-DT[, datetime := as.POSIXct(acquisition_time, tz = 'UTC')]
+DT[, datetime := as.POSIXct(date, tz = 'UTC')]
 DT2 <- NULL
 
-for (i in unique(DT$layer)) {
+for (i in unique(DT$grid_id)) {
   #i = 2
-  subDT <- DT[layer == i]
+  subDT <- DT[grid_id == i]
   #if (length(unique(subDT$animals_original_id))==1) {next}
   group_times(DT = subDT, datetime = 'datetime', threshold = '5 minutes')
   #nrow(subDT)
@@ -135,30 +179,30 @@ n_ind_max <- DT2 %>% dplyr::select(grid_id=layer,animals_original_id, acquisitio
   group_by(grid_id) %>% dplyr::summarise(n_ind_max=(max(n_ind)/tot_ind)*100)#%>% ggplot(.,aes(x=n_ind))  + geom_histogram()
 
 n_ind_max_empty <- data.frame(grid_id=getValues(ras), n_ind_max=0)
-n_ind_max_df <- left_join(n_ind_max_empty, n_ind_max, by="grid_id") %>% #str()
+d <- left_join(n_ind_max_empty, n_ind_max, by="grid_id") %>% #str()
   mutate(n_ind_max=replace_na(n_ind_max.y,0))
 
 r_n_ind_max <- setValues(ras, n_ind_max_df$n_ind_max)
 plot(r_n_ind_max, main="Maximum number of individuals observed simultaneously")
-# duration ----
+cc# duration ----
 
 
 freqdur_grp_df <- NULL
 
 for (i in unique(DT2$layer)) {
   # subset study areas
-  #i <- 654
-   DT3 <-  DT2 %>% filter(layer==i) #%>%
-   group_pts(DT = DT3, threshold = 1000, id = 'animals_original_id',
-            coords = c('x_', 'y_'), timegroup = 'timegroup')
+  #i <- 10702
+   DT3 <-  DT2 %>% filter(grid_id==i) #%>%
+   group_pts(DT = DT3, threshold = 100, id = 'id',
+            coords = c('x', 'y'), timegroup = 'timegroup')
 
-   DT4 <- DT3 %>% dplyr::select(layer, timegroup, acquisition_time, animals_original_id) %>% group_by(timegroup) %>% # arrange(timegroup)
-    dplyr::summarise(acquisition_time=mean(acquisition_time),
-                     layer=max(layer),
-                     n=n_distinct(animals_original_id),
-                     IDs=list(animals_original_id)) %>% #View() # as_tibble()  %>%
+   DT4 <- DT3 %>% dplyr::select(grid_id, timegroup, date, id) %>% group_by(timegroup) %>% # arrange(timegroup)
+    dplyr::summarise(date=mean(date),
+                     grid_id=max(grid_id),
+                     n=n_distinct(id),
+                     IDs=list(id)) %>% #View() # as_tibble()  %>%
     mutate(IDs2 = map2(IDs, lag(IDs), intersect),
-           n2=lengths(IDs2)) %>% #data.table()
+           n2=lengths(IDs2)) %>% data.table() %>% View()
      filter(n>1 | n2 > 1) %>%
      #mutate(visit=case_when(as.numeric(difftime(acquisition_time,lag(acquisition_time), unit="hours"))< 1.1~1,
      #                       as.numeric(difftime(acquisition_time,lag(acquisition_time), unit="hours"))>= 1.1~0),
@@ -167,7 +211,7 @@ for (i in unique(DT2$layer)) {
    if (nrow(DT4)<3) {next}
    DT4[, datetime := as.POSIXct(acquisition_time, tz = 'UTC')]
    group_times(DT = DT4, datetime = 'acquisition_time', threshold = '1 hour')
-
+DT4 %>% arrange(timegroup) %>% View()
    # duration: select where 2 or > ind stay on a grid
    duration <- DT4 %>% filter(n2>1) %>% group_by(timegroup) %>%
       dplyr::summarise(start=min(datetime),
@@ -414,8 +458,18 @@ clPairs(X, class)
 library(tidyverse)
 stack_df <- as.data.frame(rstack) %>% filter_all(any_vars(. != 0))
 saveRDS(stack_df, file = "D:/PROJECTS/04_SocialScape/data/stack_df.rds")
-tt <- scale(table[table$ID == id[i], vars])
-try(ls[[i]] <- Mclust(tt, G = 2:max.n.clust, modelNames = modelname))
+stack_df <- readRDS("D:/PROJECTS/04_SocialScape/data/stack_df.rds")
+library(tidyverse)
+stack_df <- stack_df %>% filter_all(any_vars(. != 0)) %>% dplyr::select(r_n_ind, r_n_ind_max)
+tt <- scale(stack_df)
+ind_clust
+tt <- scale(table[table_grid$ID == id[i], vars])
+ls <- Mclust(tt, G = 2:4)
+ls$parameters$mean
+#Proportion of each cluster (how frequent it is spatially)
+ls$parameters$pro
+
+
 BIC <- mclustBIC(stack_df)
 plot(BIC)
 mod1 <- Mclust(stack_df)
@@ -423,3 +477,11 @@ summary(mod1, parameters = TRUE)
 library(moveNT)
 loop
 ind_clust
+
+
+# 3 Extract environmental variables ----
+# forest cover, forest type, road density, human footprint
+
+# 4 Application ----
+# 4.1 Bialowieza ----
+# 4.2 Belgium ----

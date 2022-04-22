@@ -20,16 +20,16 @@ gps_data <- readRDS("data/gps1h.rds")
 gps_data %>% group_by(short_name2) %>% tally() %>% View()
 # 2 Social grid ----
 for (i in unique(gps_data$short_name2)) { #c("StHubert_17","Hertogenwald_11","Famenne_8", "Marche_14","Thuin_18")) {
-  #i <- "LageK_26.1"
+  #i <- "HainichNP_15"
   gps_i <- gps_data %>% filter(short_name2==i)
-  for (j in c("cold", "warm")) {
+  #for (j in c("cold", "warm")) {
     #j <- "warm"
-    gps_season <- gps_i %>% filter(season==j)
-    for (k in c("day", "night")) {
+  #  gps_season <- gps_i %>% filter(season==j)
+  #  for (k in c("day", "night")) {
       # k <- "night"
-      gps_tod <- gps_season %>% filter(tod_==k)
-      gps_traj <- as.ltraj(xy = gps_tod[,c("x","y")], date = gps_tod$acquisition_time,
-                           id = gps_tod$animals_original_id, typeII = TRUE)
+  #    gps_tod <- gps_season %>% filter(tod_==k)
+      gps_traj <- as.ltraj(xy = gps_i[,c("x","y")], date = gps_i$acquisition_time,
+                           id = gps_i$animals_original_id, typeII = TRUE)
       socgrid <- socialGrid(data=gps_traj, res=200, crs=32632, contact_threshold='5 minutes')
       soc_tbl <- socgrid[[1]] %>% dplyr::select(-grid_id) %>%   janitor::remove_empty(which = "rows") %>% rownames_to_column("grid_id")
       soc_ras <- socgrid[[2]]
@@ -38,12 +38,12 @@ for (i in unique(gps_data$short_name2)) { #c("StHubert_17","Hertogenwald_11","Fa
       crs(soc_ras) <- "+init=epsg:32632"
       crs(soc_grid) <- "+init=epsg:32632"
       i2 <- str_replace(i, "[.]", "_")
-      write.csv(soc_tbl,paste0("tables/SocTbl/sampling1h/soc_tbl_",i2,"_",j,"_", k, ".csv", sep=""))
-      writeRaster(soc_ras, paste("data/derived_data/SocGrid/sampling1h/",i2,"_",j,"_",k, ".grd", sep=""), format="raster", overwrite=T)
+      write.csv(soc_tbl,paste0("tables/SocTbl/sampling1h/2022_03_30/soc_tbl_",i2, ".csv", sep=""))
+      writeRaster(soc_ras, paste("data/derived_data/SocGrid/sampling1h/2022_03_30/",i2, ".grd", sep=""), format="raster", overwrite=T)
       
-    }
-  }
-  writeRaster(soc_grid, paste("data/derived_data/SocGrid/sampling1h/",i2,"_grid", ".grd", sep=""), format="raster", overwrite=T)
+  #  }
+ # }
+  writeRaster(soc_grid, paste("data/derived_data/SocGrid/sampling1h/2022_03_30/",i2,"_grid", ".grd", sep=""), format="raster", overwrite=T)
 }
 
 names(soc_ras)
@@ -55,7 +55,7 @@ plot(grid)
 par(mfrow=c(1,1))
 herto <- stack("data/derived_data/SocGrid/sampling2h/full/Hertogenwald_11.tif")
 # study areas ----
-grids_list <- list.files("data/derived_data/SocGrid/sampling1h/", pattern="_grid.grd")
+grids_list <- list.files("data/derived_data/SocGrid/sampling1h/2022_03_25", pattern="_grid.grd")
 study_areas <- str_remove_all(grids_list, ".grd") %>% str_remove_all(., "_grid") %>% unique() 
 #saI <- study_areas[!study_areas %in% c("DNP_34_1","fanel_33_1",  "LageK_26_1", "MT_35_3", "MT_35_4")]
 #saII <- study_areas[study_areas %in% c("DNP_34_1","fanel_33_1",  "LageK_26_1", "MT_35_3", "MT_35_4")] %>% 
@@ -105,9 +105,9 @@ dev.off()
 
 # 4 create Social_direct/indirect stack ----
 library(stringi)
-study_loop <- read.csv("tables/study_loop.csv")
-study_loop <- gps_coord %>% group_by(study_name, short_name2) %>% tally() %>% dplyr::select(-n) %>% 
-  mutate(short_name2=stri_replace_last(short_name2,fixed = ".", "_") )
+#study_loop <- read.csv("tables/study_loop.csv")
+#study_loop <- gps_coord %>% group_by(study_name, short_name2) %>% tally() %>% dplyr::select(-n) %>% 
+#  mutate(short_name2=stri_replace_last(short_name2,fixed = ".", "_") )
 
 
 #write.csv(study_loop, "tables/study_loop.csv")
@@ -117,7 +117,7 @@ mean_narm = function(x,...){mean(x,na.rm=TRUE)}
 remove <- c( "_","\\.", "1", "2","3", "4","5", "6", "7", "8", "9", "0")
 study_list <- unique(gps_data$short_name2)
 study_loop <- study_list %>% str_remove_all(paste(remove, collapse = "|")) %>% unique()
-list_grids <- data.frame(grid_path=list.files("D:/PROJECTS/04_SocialScape/data/derived_data/SocGrid/sampling1h/",full.names=T ))
+list_grids <- data.frame(grid_path=list.files("D:/PROJECTS/04_SocialScape/data/derived_data/SocGrid/sampling1h/2022_03_25/",full.names=T ))
 list_cov <- data.frame(cov_path=list.files("D:/PROJECTS/xx_GIS/data/derived_data/stacks_2022", pattern = ".grd",full.names=T ))
 
 dat_i <- NULL
@@ -129,19 +129,26 @@ datd_df <- NULL
 datw_df <- NULL
 
 
-for (i in 21:length(study_loop)) {
+for (i in 1:length(study_loop)) {
+  #i <- 23
   print(study_loop[i])
-  #i <- "LageK_26_1"
-  for (j in c("night", "day")) {
-    for (k in c("warm", "cold")) {
+  #i <- 24
+  if (study_loop[i]=="FCNPwest") {study_loop[i]="FCNP_west"}
+  if (study_loop[i]=="FCNPeast") {study_loop[i]="FCNP_east"}
+  if (study_loop[i]=="OasiArezzo") {study_loop[i]="Oasi_Arezzo"}
+  #i <- 21
+  #for (j in c("night", "day")) {
+    #j <- "night"
+    #for (k in c("warm", "cold")) {
+      #k <- "warm"
       #i <- "_Alb_39_cold_day_"
       grid <- NULL
       
       grid_i <- list_grids %>% filter(str_detect(grid_path, regex(study_loop[i], ignore_case = TRUE)))
-      grid_j <- grid_i %>% filter(str_detect(grid_path, j))
-      grid_k <- grid_j %>% filter(str_detect(grid_path, k))
-      grid <- stack(grid_k$grid_path[1])
-      
+      #grid_j <- grid_i %>% filter(str_detect(grid_path, j))
+      #grid_k <- grid_j %>% filter(str_detect(grid_path, k))
+      grid <- stack(grid_i$grid_path[1])
+
       #grid <- stack(paste("D:/PROJECTS/04_SocialScape/data/derived_data/SocGrid/sampling1h/",grid_i,"_",k,"_", j,".grd", sep=""))
       #plot(grid)
       #names(grid) <- c("n_ind_abs", "n_ind_simult_max", "n_ind_simult_mean","dur_mean", "freq_mean",  
@@ -156,18 +163,33 @@ for (i in 21:length(study_loop)) {
                               sel_scale[["grp_change"]], fun=mean_narm)
       names(soc_indirect) <- "Indirect_interactions"
       soc_withbetw <- overlay(sel[["SI"]],sel[["PX"]],
-                              sel[["CS"]],sel[["CR"]],sel[["HAI"]], fun=mean_narm)
-      names(soc_withbetw) <- "WithinBetween_interactions"
-      
-     
+                              sel[["CS"]],sel[["CR"]],sel[["HAI"]],
+                              #sel_scale[["grp_change"]],
+                              fun=mean_narm)
+      plot(soc_direct)
+      plot(soc_indirect)
+      par(mfrow=c(1,2))
+      plot(soc_direct)
+      plot(soc_withbetw)
+      #plot(soc_withbetw_sd)
+      #plot(soc_withbetw_min)
+      if (sum(!is.na(values(soc_withbetw))) < 100){next}
+      # select only areas where cells contains withbetw values
+      soc_direct <- mask(soc_direct, soc_withbetw)
+      soc_dir_wb <- overlay(soc_direct, soc_withbetw, fun=function(x,y){(x*y)})
+      #soc_indirect <- mask(soc_indirect, soc_withbetw)
+      #soc_indir_wb <- overlay(soc_indirect, soc_withbetw, fun=function(x,y){(x*y)})
+      #if (table(is.na(values(soc_dir_wb)))[1]/ table(is.na(values(soc_dir_wb)))[2] < .01){next}
+      #plot(soc_dir_wb)
+      #plot(soc_indir_wb)
+      #plot(soc_withbetw)
       
       #l <- study_loop[study_loop$study==i,]$covariates
       #if (l=="Geneva Basin - CH/FR") {l <- "Geneva Basin"}
       #l <- "Swabian Alps (Alb)"
-      if (study_loop[i]=="FCNPwest") {study_loop[i]="FCNP_west"}
-      if (study_loop[i]=="FCNPeast") {study_loop[i]="FCNP_east"}
-      if (study_loop[i]=="OasiArezzo") {study_loop[i]="Oasi_Arezzo"}
-      #if (study_loop[i]=="doupov") {study_loop[i]="doupov"}
+      
+      if (study_loop[i]=="doupov") {study_loop[i]="doupov"}
+      cov <- NULL
       cov <- list_cov %>% filter(str_detect(cov_path, regex(study_loop[i], ignore_case = TRUE)))
       if (nrow(cov) == 1) {
         names_list <- names(stack(cov$cov_path))
@@ -216,33 +238,38 @@ for (i in 21:length(study_loop)) {
         cov <- merge(stack(cov$cov_path[1]),stack(cov$cov_path[2]),cov_diff4,cov_diff4,stack(cov$cov_path[5]))
         names(cov) <- names_list
         }
+      #plot(cov)
+      soc_direct <- projectRaster(soc_direct, 
+                                 crs ='+proj=laea +lat_0=52 +lon_0=10 +x_0=4321000 +y_0=3210000 +ellps=GRS80 +units=m +no_defs' , 
+                                 method = "bilinear")
+      soc_indirect <- projectRaster(soc_indirect, crs ='+proj=laea +lat_0=52 +lon_0=10 +x_0=4321000 +y_0=3210000 +ellps=GRS80 +units=m +no_defs' , 
+                                   method = "bilinear")
+      soc_withbetw <- projectRaster(soc_withbetw, crs ='+proj=laea +lat_0=52 +lon_0=10 +x_0=4321000 +y_0=3210000 +ellps=GRS80 +units=m +no_defs' , 
+                                    method = "bilinear")
       
-      
-      
-      continuous_direct <- projectRaster(soc_direct, cov)
-      continuous_indirect <- projectRaster(soc_indirect, cov)
-      soc_withbetw <- projectRaster(soc_withbetw, cov)
-      predictors <- resample(cov, continuous_direct, method="ngb")
-      
+      predictors <- resample(cov,soc_direct, method="ngb")
+      #predictors <- mask(predictors, wb_direct)
+      #plot(predictors[[1]])
+     
       # extract
       #cov_alb <- projectRaster(cov_alb, crs = crs(soc_direct))
-      p_d <- rasterToPoints(continuous_direct)
+      p_d <- rasterToPoints(soc_direct)
       p1_d <- p_d[,c("x","y")]
       pcov_d <- raster::extract(predictors, p1_d,cellnumbers=T)
       dat_d <- data.frame(cbind(p_d, pcov_d))
       if(nrow(dat_d)==0) {dat_d[1,]<-NA }
       dat_d$study <- study_loop[i]
-      dat_d$season <- k
-      dat_d$tod <- j
+      #dat_d$season <- k
+      #dat_d$tod <- j
       
-      p_i <- rasterToPoints(continuous_indirect)
+      p_i <- rasterToPoints(soc_indirect)
       p1_i <- p_i[,c("x","y")]
       pcov_i <- raster::extract(predictors, p1_i,cellnumbers=T)
       dat_i <- data.frame(cbind(p_i, pcov_i))
       if(nrow(dat_i)==0) {dat_i[1,]<-NA }
       dat_i$study <- study_loop[i]
-      dat_i$season <- k
-      dat_i$tod <- j
+      #dat_i$season <- k
+      #dat_i$tod <- j
       
       p_w <- rasterToPoints(soc_withbetw)
       p1_w <- p_w[,c("x","y")]
@@ -250,8 +277,8 @@ for (i in 21:length(study_loop)) {
       dat_w <- data.frame(cbind(p_w, pcov_w))
       if(nrow(dat_w)==0) {dat_w[1,]<-NA }
       dat_w$study <- study_loop[i]
-      dat_w$season <- k
-      dat_w$tod <- j
+      #dat_w$season <- k
+      #dat_w$tod <- j
       
       dati_df <- bind_rows(dati_df, dat_i)
       datd_df <- bind_rows(datd_df, dat_d)
@@ -259,15 +286,15 @@ for (i in 21:length(study_loop)) {
       
     }
     
-  }
+ # }
   
 
-}
-range(dati_df$distance_roads, na.rm=T)
-table(datw_df$tod)
-write.csv(dati_df, "data/derived_data/SocTbl/sampling1h/soc_indirect.csv")
-write.csv(datd_df, "data/derived_data/SocTbl/sampling1h/soc_direct.csv")
-write.csv(datw_df, "data/derived_data/SocTbl/sampling1h/soc_withbetw.csv")
+#}
+dati_df %>% filter(study == "HainichNP")
+datd_df %>% group_by(study) %>% tally()
+saveRDS(dati_df, "data/derived_data/SocTbl/sampling1h/soc_indirect_wb.rds")
+saveRDS(datd_df, "data/derived_data/SocTbl/sampling1h/soc_direct_wb.rds")
+saveRDS(datw_df, "data/derived_data/SocTbl/sampling1h/soc_withbetw.rds")
 
 # now go to 03_models
 

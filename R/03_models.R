@@ -1,3 +1,4 @@
+
 # maybe keep ac model + rf for comparison (at least at the predictive level, e.g compare auc,thenfor extrapolation keep only rf model)
 # to restart with (after 22/9)
 # https://pages.cms.hu-berlin.de/EOL/gcg_quantitative-methods/Lab15_SpatialRegression.html
@@ -32,19 +33,27 @@ library(here)
 library(nlme)
 library(gstat)
 library(tidymodels)
+library(sfheaders)
+library(sjmisc)
 
 # data import ----
-head(soci)
-nrow(socwb)
-soci <- readRDS("data/derived_data/SocTbl/sampling1h/soc_indirect.rds") %>% rename(indirect=Indirect_interactions) #%>% dplyr::select(study,cells, withbetw)
-socd <- readRDS("data/derived_data/SocTbl/sampling1h/soc_direct.rds") %>% rename(direct=Direct_interactions) %>% dplyr::select(study,cells, direct)
-socwb <- readRDS("data/derived_data/SocTbl/sampling1h/soc_withbetw.rds") %>% rename(withbetw=WithinBetween_interactions) %>% dplyr::select(study,cells, withbetw)
-soc_1 <- left_join(soci, socd, by=c("study","cells"))
-soc_df <- left_join(soc_1, socwb, by=c("study","cells"))
-table(soc_df$landcover)
+
+soci <- readRDS("data/derived_data/SocTbl/sampling1h/soc_indirect_wb.rds") %>% rename(indirect=layer) %>%  #rename(indirect=Indirect_interactions) #%>% dplyr::select(study,cells, withbetw)
+  mutate(indirect = rescale(indirect))
+socd <- readRDS("data/derived_data/SocTbl/sampling1h/soc_direct_wb.rds") %>%  rename(direct=layer) %>% dplyr::select(study,cells, direct) %>% 
+  mutate(direct = rescale(direct))
+#socwb <- readRDS("data/derived_data/SocTbl/sampling1h/soc_withbetw.rds") %>% rename(withbetw=WithinBetween_interactions) %>% dplyr::select(study,cells, withbetw)
+soc_df <- left_join(soci, socd, by=c("study","cells"))
+soc_df %>% group_by(study) %>% dplyr::summarise(min=min(direct, na.rm=T),
+                                               max=max(direct, na.rm=T),
+                                               n=n()) %>% 
+  arrange(desc(n)) %>% View()
+
+
+#soc_1 <- left_join(soci, socd, by=c("study","cells"))
 
 # convert landcover to factor + regroup
-soc_df <- soc_df %>% mutate(landcov_class = case_when(landcover < 12 ~ "human",
+soc_df <- soc_df %>% mutate(lc = case_when(landcover < 12 ~ "human",
                                                       landcover >= 12 & landcover < 18 ~ "agriculture",
                                                       landcover == 18 ~ "pasture",
                                                       landcover > 18 & landcover <= 22 ~ "agriculture",
@@ -52,8 +61,46 @@ soc_df <- soc_df %>% mutate(landcov_class = case_when(landcover < 12 ~ "human",
                                                       landcover == 24 ~ "coniferous",
                                                       landcover == 25 ~ "mixed",
                                                       landcover > 25 & landcover <= 34 ~ "natural_veg",
-                                                      landcover > 34 ~ "water_marshes"),
-                            landcov_class = factor(landcov_class))
+                                                      landcover > 34 ~ "water_marshes"), 
+                            lc = factor(lc))
+# create dummy variables from landcov
+soc_df %>% 
+  to_dummy(lc, suffix = "label") %>% 
+  bind_cols(soc_df) -> soc_df 
+nrow(soc_df)
+# Collinearity ----
+library(usdm)
+library(stringi)
+
+
+vif_df <- NULL
+for (i in unique(soc_df$study)) {
+  
+  #i <- "Alb"
+  soc1 <- soc_df %>% filter(study == i) %>% 
+    
+    dplyr::select(distance_forest,distance_edges,distance_urban,# the covariates
+    distance_pasture,distance_crops, distance_river,human_print, enet_density,
+    tcd, distance_roads,distance_paths, elevation,slope ,hli, twi)
+  soc2 <- soc1[complete.cases(soc1),]
+  soc2 <- soc2 %>% select_if(~ !any(is.na(.)))
+  if (nrow(soc2) < 1) {next}
+  #plot(grid_scale)
+  vif_i <- vif(soc2)
+  vif_i$study <- i
+  vif_df <- bind_rows(vif_df, vif_i)
+}
+
+vif_df %>%  
+  filter_all(all_vars(!is.infinite(.))) %>%  group_by(Variables) %>% 
+  dplyr::summarise(vif_mean=median(VIF, na.rm=T),
+                   vif_sd=sd(VIF, na.rm=T))
+
+vif2 <- vifstep(soc2, th=10) 
+sel3 <- dropLayer(grid_all, c("dist_sd","dist_median","Degree","freq_mean","n_ind_abs","n_ind_max_abs"))
+
+# in consequence, remove distance_urban and distance_crops
+
 
 cov_belgium <- stack("data/derived_data/dellicour_area.grd")
 cov_belgium <- subset(cov_belgium,c("distance_forest","distance_edges","distance_urban",
@@ -77,52 +124,65 @@ aoa_df <- NULL
 #             "Marche_14", "MT_35_3" ,"MT_35_4" , "Oasi_Arezzo_21","Sardinia_9","StHubert_17",
 #             "sumava_31","tutrakan_12", "Wur_40")) {# # { c("Alb_39","Alt_41"))
 for (i in unique(soc_df$study)) { 
-    print(i)
-  #i <- "HainichNP_15"
-  dat <- soc_df %>% filter(study %in% i) %>%
-    dplyr::select(x, y, direct, indirect, withbetw, # the response
-                  distance_forest,distance_edges,distance_urban,# the covariates
+  print(i)
+  #i <- "HainichNP"
+  names(soc_df)
+  dat <- soc_df %>% filter(study == i) %>%
+    #filter(season == "warm" & tod == "night") %>% 
+    dplyr::select(x, y, direct, indirect, #withbetw, # the response
+                  distance_forest,distance_edges,#distance_urban,# the covariates
+                  distance_pasture,#distance_crops, 
+                  distance_river, human_print, enet_density,
                   tcd, distance_roads,distance_paths, elevation,
                   slope ,hli, twi)
-  dat <- dat[complete.cases(dat[, 6:15]),]
-  preProcValues <- preProcess(dat[,-c(1:2)], method = c("center", "scale")) # add "nzv", "YeoJohnson"
+  names(dat)
+  dat <- dat[complete.cases(dat[, 5:17]),]
+  preProcValues <- preProcess(dat[,-c(1:4)], method = c("center", "scale")) # add "nzv", "YeoJohnson"
   dat <- predict(preProcValues, dat) 
   
   # create indices based on variogram model
   vario <- variogram(direct~1, data=dat, locations= ~x+y)
   vario_fit <-fit.variogram(vario, vgm("Sph"))
+  #plot(vario)
   direct <- rasterFromXYZ(dat[,1:3]) 
-  
+  #plot(direct)
   
   dat_sf <- st_as_sf(dat,coords = c("x", "y"), crs = 32632 )
 
   vario_grid <- st_make_grid(dat_sf, cellsize = vario_fit$range[2],
                              crs = 32632) %>% st_sf() %>% mutate(index = row_number())
   vario_sf <- st_intersection(dat_sf, vario_grid) 
-  library(sfheaders)
+  
   dat_df <- sf_to_df(vario_sf, fill = T) %>% dplyr::select(-c(sfg_id, point_id))
  
 
   trainDat <- dat_df %>%
-    sample_n(1000) # to reduce processing time in the test phase
+    sample_n(150) # to reduce processing time in the test phase
   
-  predictors <- c("distance_forest","distance_edges","distance_urban",
+  predictors <- c("distance_forest","distance_edges",
                   "tcd", "distance_roads",
-                  "distance_paths", "elevation", "slope" ,"hli", "twi")
+                  "distance_paths", "elevation", "slope" ,"hli", "twi",
+                  "distance_pasture", "distance_river",
+                  "human_print", "enet_density")
   
   m_res_all <- NULL
   var_imp_all <- NULL
   aoa_all <- NULL
 
   for (j in c("direct", "indirect", "withbetw")) {
-    #j <- "direct"
-    response <- j
-    if (response == "withbetw") {trainDat = na.omit(trainDat)}
+    #j <- "indirect"
+    response <- "direct"
+    #if (response == "withbetw") {trainDat = na.omit(trainDat)}
     if(nrow(trainDat) < 50) {next}
     model <- NULL
     
     indices <- CreateSpacetimeFolds(trainDat,spacevar = "index")
     
+    unregister_dopar <- function() {
+      env <- foreach:::.foreachGlobals
+      rm(list=ls(name=env), pos=env)
+    }
+    unregister_dopar()
     ffsmodel_LLO <- ffs(trainDat[,predictors],
                         trainDat[,response],
                         metric="Rsquared",
@@ -130,9 +190,14 @@ for (i in unique(soc_df$study)) {
                         verbose=FALSE,#ntree=50,
                         trControl=trainControl(method="cv",
                                                index = indices$index))
+   
     ffsmodel_LLO
     ffsmodel_LLO$selectedvars
-    cov <- stack("D:/PROJECTS/xx_GIS/data/derived_data/hainich.grd")
+    plot_ffs(ffsmodel_LLO)
+    predictors_sp <- stack("D:/PROJECTS/xx_GIS/data/derived_data/stacks_2022/HainichNP.grd")
+    prediction_ffs <- predict(predictors_sp,ffsmodel_LLO)
+    spplot(prediction_ffs)
+    
     
     model_LLO <- train(trainDat[,predictors],
                        trainDat[,response],
@@ -141,11 +206,15 @@ for (i in unique(soc_df$study)) {
                        trControl=trainControl(method="cv",
                                               index = indices$index))
     model_LLO$finalModel
+    prediction <- predict(predictors_sp,model_LLO)
+    spplot(prediction)
     plot(varImp(model_LLO))
     plot_ffs(ffsmodel_LLO)
-    prediction_ffs <- predict(cov,model_LLO)
-    spplot(prediction_ffs)
-    plot(direct)
+    plot(model_LLO)
+    AOA <- aoa(predictors_sp,model)
+    
+    spplot(prediction,main="prediction for the AOA \n(spatial CV error applied)")+
+      spplot(AOA$AOA,col.regions=c("grey","transparent"))
     
     library(doParallel)
     cl <- makePSOCKcluster(5)
@@ -164,6 +233,14 @@ for (i in unique(soc_df$study)) {
                                             verboseIter = TRUE,
                                             allowParallel = TRUE)
                    )
+    plot(model)
+    prediction <- predict(predictors_sp,model)
+    spplot(prediction)
+    plot(varImp(model))
+    # unregister_dopar <- function() {
+    #   env <- foreach:::.foreachGlobals
+    #   rm(list=ls(name=env), pos=env)
+    # }
     
     stopCluster(cl)
    
